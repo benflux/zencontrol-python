@@ -130,7 +130,8 @@ class ZenProtocol:
                  unicast: bool = False,
                  listen_ip: Optional[str] = None,
                  listen_port: Optional[int] = None,
-                 cache: dict = {}):
+                 cache: dict = {},
+                 label_lookup: Optional[callable] = None):
         self.logger = logger or logging.getLogger('null')
         if logger is None:
             self.logger.addHandler(logging.NullHandler())
@@ -138,6 +139,7 @@ class ZenProtocol:
         self.unicast = unicast
         self.listen_ip = (listen_ip if listen_ip else "0.0.0.0") if unicast else None
         self.listen_port = (listen_port if listen_port else 0) if unicast else None
+        self.label_lookup = label_lookup
 
         # Cache object
         self.cache: dict = cache
@@ -197,6 +199,72 @@ class ZenProtocol:
         for d in packet:
             acc = d ^ acc
         return acc
+
+    def _decode_dali_command(self, raw_data: bytes) -> str:
+        """Decode DALI command from raw bytes into human-readable format
+        
+        Args:
+            raw_data: Raw request bytes (e.g., [0x04 0x78 0xAD 0x48 0x00 0x00 0x00 0x99])
+        
+        Returns:
+            Human-readable command description
+        """
+        if len(raw_data) < 4:
+            return "Unknown"
+        
+        # Extract components
+        header = raw_data[0]  # 0x04 = DALI command
+        address = raw_data[1]  # DALI address
+        opcode = raw_data[2]  # DALI opcode
+        param = raw_data[3] if len(raw_data) > 3 else 0  # Parameter
+        
+        # Determine if it's a group or individual address
+        if 64 <= address <= 79:
+            addr_type = "Group"
+            addr_num = address - 64
+        elif 0 <= address <= 63:
+            addr_type = "Light"
+            addr_num = address
+        else:
+            addr_type = "Unknown"
+            addr_num = address
+        
+        # Decode DALI opcodes
+        opcode_map = {
+            0xA2: "Set Level",
+            0xA9: "Turn OFF", 
+            0xA1: "Recall Scene",
+            0xAD: "Query Last Scene",
+            0xAA: "Query Level",
+            0xA3: "Step Up",
+            0xA4: "Step Down",
+            0xA7: "Recall Max",
+            0xA8: "Recall Min",
+            0xA5: "Step Up",
+            0xA6: "Step Down",
+            0x0E: "Set Color",
+            0x34: "Query Color",
+            0xA0: "Inhibit",
+            0xB1: "Query Fade Running",
+            0xAF: "Query Min Level",
+            0xB0: "Query Max Level",
+        }
+        
+        command_name = opcode_map.get(opcode, f"Unknown (0x{opcode:02X})")
+        
+        # Format parameter based on command type
+        if opcode == 0xA2:  # Set Level
+            param_desc = f" to {param}%"
+        elif opcode == 0xA1:  # Recall Scene
+            param_desc = f" {param}"
+        elif opcode in [0xAD, 0xAA, 0x34, 0xB1, 0xAF, 0xB0]:  # Query commands
+            param_desc = ""
+        elif opcode == 0x0E:  # Set Color
+            param_desc = f" (mode 0x{param:02X})"
+        else:
+            param_desc = f" (param 0x{param:02X})" if param != 0 else ""
+        
+        return f"{addr_type} {addr_num}: {command_name}{param_desc}"
 
     async def _send_basic(self,
                    controller: ZenController,
@@ -339,7 +407,19 @@ class ZenProtocol:
         # print_traffic
         if self.print_traffic and response.request.raw_sent and response.raw_rcvd:
             rtt_ms = (response.timestamp - response.request.timestamp) * 1000
-            print(Fore.MAGENTA + f"REQUEST: [{' '.join(f'0x{b:02X}' for b in response.request.raw_sent)}]  "
+            
+            # Decode DALI command for human-readable output
+            command_desc = self._decode_dali_command(response.request.raw_sent)
+            
+            # Get device label if lookup function is available
+            label = ""
+            if self.label_lookup and len(response.request.raw_sent) >= 2:
+                address = response.request.raw_sent[1]
+                device_label = self.label_lookup(controller, address)
+                if device_label:
+                    label = f" ({device_label})"
+            
+            print(Fore.MAGENTA + f"REQUEST: {command_desc}{label} [{' '.join(f'0x{b:02X}' for b in response.request.raw_sent)}]  "
                 + Fore.WHITE + Style.DIM + f"RTT: {rtt_ms:.0f}ms".ljust(10)
                 + Style.RESET_ALL + Fore.CYAN + f"  RESPONSE: [{' '.join(f'0x{b:02X}' for b in response.raw_rcvd)}]"
                 + Style.RESET_ALL)
@@ -554,9 +634,16 @@ class ZenProtocol:
                     await self.system_variable_change_callback(controller=controller, target=target, value=value, payload=payload)
 
             case ZenEventCode.COLOUR_CHANGE:
-                if self.print_traffic: 
+                if self.print_traffic:
+                    # Get device label if lookup function is available
+                    label = ""
+                    if self.label_lookup:
+                        device_label = self.label_lookup(controller, target)
+                        if device_label:
+                            label = f" ({device_label})"
+                    
                     print(Fore.MAGENTA + f"{typecast.upper()} {ip_address}:" +
-                        Fore.CYAN + f" Colour change {'' if target <= 63 else 'group '}{target if target <= 63 else target-64}" +
+                        Fore.CYAN + f" Colour change {'' if target <= 63 else 'group '}{target if target <= 63 else target-64}{label}" +
                         Style.DIM + f" [{' '.join(f'0x{b:02X}' for b in payload)}]" +
                         Style.RESET_ALL)
                 if self.colour_change_callback:

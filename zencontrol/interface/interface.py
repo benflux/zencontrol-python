@@ -43,7 +43,7 @@ class ZenControl:
                  cache: dict = {}
                  ):
         self.logger = logger or logging.getLogger(__name__)
-        self.protocol: ZenProtocol = ZenProtocol(logger=self.logger, print_traffic=print_traffic, unicast=unicast, listen_ip=listen_ip, listen_port=listen_port, cache=cache)
+        self.protocol: ZenProtocol = ZenProtocol(logger=self.logger, print_traffic=print_traffic, unicast=unicast, listen_ip=listen_ip, listen_port=listen_port, cache=cache, label_lookup=self.get_device_label_by_target)
         self.controllers: list[ZenController] = []
 
     @property
@@ -292,6 +292,29 @@ class ZenControl:
                         break
         return sysvars
 
+    def get_device_label_by_target(self, controller: "ZenController", target: int) -> Optional[str]:
+        """Get device label for a given target number
+        
+        Args:
+            controller: The controller the target belongs to
+            target: Target number (0-63 for lights/ECG, 64-79 for groups)
+        
+        Returns:
+            Device label or None if not found
+        """
+        if target < 64:
+            # Light/ECG
+            for light in controller.lights:
+                if light.address.number == target:
+                    return light.label
+        elif 64 <= target <= 79:
+            # Group
+            group_num = target - 64
+            for group in controller.groups:
+                if group.address.number == group_num:
+                    return group.label
+        return None
+
 # ============================
 # Abstraction layer classes
 # ============================ 
@@ -522,15 +545,34 @@ class ZenLight:
             refreshed_colour = await self.protocol.query_dali_colour(self.address)
         
         if verifying:
+            # Check for mismatches
             if self.level != refreshed_level:
-                self.logger.error(f"Light {self.address.number} level mismatch! We had {self.level}, actual level is {refreshed_level}")
+                self.protocol.logger.error(f"🔍 Light {self.address.number} level mismatch! We had {self.level}, actual level is {refreshed_level}")
             if self.colour != refreshed_colour:
-                self.logger.error(f"Light {self.address.number} colour mismatch! We had {self.colour}, actual colour is {refreshed_colour}")
+                self.protocol.logger.error(f"🔍 Light {self.address.number} colour mismatch! We had {self.colour}, actual colour is {refreshed_colour}")
             if self.scene != refreshed_scene:
-                self.logger.error(f"Light {self.address.number} scene mismatch! We had {self.scene}, actual scene is {refreshed_scene}")
-        
-        # Mimic an incoming event
-        await self._event_received(level=refreshed_level, colour=refreshed_colour, scene=refreshed_scene, verifying=verifying)
+                # Only report scene mismatch if both are non-None and different
+                if self.scene is not None and refreshed_scene is not None:
+                    self.protocol.logger.error(f"🔍 Light {self.address.number} scene mismatch! We had {self.scene}, actual scene is {refreshed_scene}")
+            
+            # Only trigger event if something actually changed
+            has_changes = (
+                existing_level != refreshed_level or
+                existing_colour != refreshed_colour or
+                existing_scene != refreshed_scene
+            )
+            
+            if has_changes:
+                # Log successful verification for debugging
+                self.protocol.logger.debug(f"✅ Light {self.address.number} state changed during poll: level={refreshed_level}, colour={refreshed_colour}, scene={refreshed_scene}")
+                # Mimic an incoming event
+                await self._event_received(level=refreshed_level, colour=refreshed_colour, scene=refreshed_scene, verifying=verifying)
+            else:
+                # State confirmed unchanged - log at debug level only
+                self.protocol.logger.debug(f"✅ Light {self.address.number} state verified unchanged: level={self.level}, colour={self.colour}, scene={self.scene}")
+        else:
+            # Not verifying, always trigger event (normal refresh)
+            await self._event_received(level=refreshed_level, colour=refreshed_colour, scene=refreshed_scene, verifying=verifying)
 
     def _start_refresh_timer(self):
         """Start a 2-second timer to refresh from controller after API user changes state."""
@@ -590,12 +632,17 @@ class ZenLight:
                         # print(f"                              Group {group.address.number} discoordinated after scene set" + f" cascaded from group {cascaded_from.address.number}" if cascaded_from else "")
                         await group.declare_discoordination()
         else:
-            if level is not None and level != 255 and level != self.level:
-                self.level = level
-                level_changed = True
-                if self.scene is not None:
-                    self.scene = None
-                    scene_changed = True
+            if level is not None and level != 255:
+                if level != self.level:
+                    self.level = level
+                    level_changed = True
+                    if self.scene is not None:
+                        self.scene = None
+                        scene_changed = True
+                elif level == 0 and self.level == 0:
+                    # Force callback even if already at 0 to ensure HA stays in sync
+                    # This handles cases where the controller sends multiple OFF events
+                    level_changed = True
             if colour is not None and colour != self.colour:
                 self.colour = colour
                 colour_changed = True
@@ -897,6 +944,10 @@ class ZenMotionSensor:
         self.occupied = True
     @property
     def occupied(self) -> bool:
+        # If last_detect is None, sensor has never detected motion or was reset
+        if self.last_detect is None:
+            return False
+        
         seconds_since_last_motion = time.time() - self.last_detect
         within_hold_time = seconds_since_last_motion < self.hold_time
         # if occupied but a hold task isn't running, start one with the time remaining

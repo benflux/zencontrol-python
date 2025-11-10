@@ -1,0 +1,293 @@
+- id: 0
+  name: zen1
+  label: Zencontrol 1
+  groups:
+  - id: 0
+    label: Group 0
+  - id: 1
+    label: Linen Hallway
+  - id: 2
+    label: Master Bedroom
+  - id: 3
+    label: Walk In Wardrobe
+  - id: 4
+    label: Master Ensuite
+  - id: 5
+    label: Master Ensuite WC
+  - id: 6
+    label: Laundry
+  - id: 7
+    label: Main Bathroom
+  - id: 8
+    label: Master Bedside Lamps
+  lights:
+  - ecg: 0
+    label: Linen Hallway
+  - ecg: 1
+    label: Linen Hallway
+  - ecg: 2
+    label: Linen Hallway
+  - ecg: 3
+    label: Master Bedroom
+  - ecg: 4
+    label: Master Bedroom
+  - ecg: 5
+    label: Master Bedroom
+  - ecg: 6
+    label: Master Bedroom
+  - ecg: 7
+    label: Master Bedroom
+  - ecg: 8
+    label: Master Bedroom
+  - ecg: 9
+    label: Walk In Wardrobe
+  - ecg: 10
+    label: Walk In Wardrobe
+  - ecg: 11
+    label: Walk In Wardrobe
+  - ecg: 12
+    label: Master Ensuite
+  - ecg: 13
+    label: Master Ensuite
+  - ecg: 14
+    label: Master Ensuite
+  - ecg: 15
+    label: Master Ensuite Vanity
+  - ecg: 16
+    label: Master Ensuite
+  - ecg: 17
+    label: Master Ensuite Exfan
+  - ecg: 18
+    label: Master Ensuite WC
+  - ecg: 19
+    label: Master Ensuite WC Exfan
+  - ecg: 20
+    label: Laundry
+  - ecg: 21
+    label: Laundry
+  - ecg: 22
+    label: Laundry
+  - ecg: 23
+    label: Master Bedroom Wall Light
+  - ecg: 24
+    label: Master Bedroom Wall Light
+  - ecg: 25
+    label: Zencontrol 1 ECD 25
+  - ecg: 40
+    label: Main Bathroom Wall Lights
+  - ecg: 60
+    label: Spare
+  - ecg: 61
+    label: Spare
+- id: 1
+  name: zen2
+  label: Zencontrol 2
+  groups:
+  - id: 0
+    label: Group 0
+  - id: 1
+    label: Carries Office
+  - id: 2
+    label: Williams Room
+  - id: 3
+    label: Hallway
+  - id: 4
+    label: Sunroom
+  - id: 5
+    label: Williams Hallway
+  - id: 6
+    label: Williams Bathroom
+  - id: 7
+    label: Williams WC
+  - id: 8
+    label: Jacks Room
+  - id: 9
+    label: Main Bathroom
+  - id: 10
+    label: Guest Bedroom
+  - id: 11
+    label: Guest Ensuite
+  - id: 12
+    label: Snug
+  - id: 13
+    label: Living/Fireplace
+  - id: 14
+    label: Front Verandah Right
+  lights:
+  - ecg: 0
+    label: Office
+  - ecg: 1
+    label: Office
+  - ecg: 2
+    label: Office
+  - ecg: 3
+    label: Office
+  - ecg: 4
+    label: Bed 3
+  - ecg: 5
+    label: Bed 3
+  - ecg: 6
+    label: Bed 3
+  - ecg: 7
+    label: Bed 3
+  - ecg: 8
+    label: Hallway
+  - ecg: 9
+    label: Hallway
+  - ecg: 10
+    label: Front Verandah
+  - ecg: 11
+    label: Library
+  - ecg: 12
+    label: Library
+  - ecg: 13
+    label: Library
+  - ecg: 14
+    label: Library
+  - ecg: 15
+    label: Library
+  - ecg: 16
+    label: Library
+  - ecg: 17
+    label: Library
+  - ecg: 18
+    label: Library
+  - ecg: 19
+    label: Bed 1 and 3 Bathroom Bathroom Hallway
+  - ecg: 20
+    label: Bed 1 and 3 Bathroom
+  - ecg: 21
+    label: Bed 1 and 3 Bathroom
+  - ecg: 22
+    label: Bed 1 and 3 Bathroom Exfan
+  - ecg: 23
+    label: Bed 1 and 3 Bathroom WC
+  - ecg: 24
+    label: Bed 1 and 3 Bathroom WC Exfan
+  - ecg: 25
+    label: Bed 1
+  - ecg: 26
+    label: Bed 1
+  - ecg: 27
+    label: Bed 1
+  - ecg: 28
+    label: Bed 1
+  - ecg: 29
+    label: Main Bathroom
+  - ecg: 30
+    label: Hallway Pendants
+  - ecg: 31
+    label: Main Bathroom Exfan
+  - ecg: 32
+    label: Bed 2
+  - ecg: 33
+    label: Bed 2
+  - ecg: 34
+    label: Bed 2
+  - ecg: 35
+    label: Bed 2
+  - ecg: 36
+    label: Bed 2 Ensuite
+  - ecg: 37
+    label: Bed 2 Ensuite Exfan
+  - ecg: 38
+    label: Living/Fireplace Pendants
+  - ecg: 39
+    label: TV Lounge
+- id: 2
+  name: zen3
+  label: Zencontrol 3
+  groups:
+  - id: 0
+    label: Group 0
+  - id: 1
+    label: Entry
+  - id: 2
+    label: Living Room
+  - id: 3
+    label: Fireplace
+  - id: 4
+    label: Rear Deck
+  - id: 5
+    label: Kitchen
+  - id: 6
+    label: Butlers Pantry
+  - id: 7
+    label: Dining
+  - id: 8
+    label: Front Verandah Left
+  - id: 9
+    label: Master Bedroom Wall Light
+  - id: 10
+    label: Pub
+  - id: 14
+    label: External Lights Trigger
+  - id: 15
+    label: Party Mode
+  lights:
+  - ecg: 0
+    label: Entry
+  - ecg: 1
+    label: Dining
+  - ecg: 2
+    label: Kitchen
+  - ecg: 3
+    label: Back Deck
+  - ecg: 4
+    label: Back Deck
+  - ecg: 5
+    label: Back Deck
+  - ecg: 6
+    label: Back Deck
+  - ecg: 7
+    label: Back Deck
+  - ecg: 8
+    label: Back Deck
+  - ecg: 9
+    label: Back Deck
+  - ecg: 10
+    label: Back Deck
+  - ecg: 11
+    label: Back Deck
+  - ecg: 12
+    label: Back Deck
+  - ecg: 13
+    label: Back Deck
+  - ecg: 14
+    label: Back Deck
+  - ecg: 15
+    label: Kitchen Bench
+  - ecg: 16
+    label: Kitchen Bench
+  - ecg: 17
+    label: Kitchen
+  - ecg: 18
+    label: Butlers Pantry
+  - ecg: 19
+    label: Butlers Pantry
+  - ecg: 20
+    label: Butlers Pantry
+  - ecg: 21
+    label: Front Verandah
+  - ecg: 22
+    label: Zencontrol 3 ECD 22
+  - ecg: 23
+    label: Zencontrol 3 ECD 23
+  - ecg: 24
+    label: Zencontrol 3 ECD 24
+  - ecg: 26
+    label: Front Verandah
+  - ecg: 31
+    label: Bar - Back Wall Lights
+  - ecg: 32
+    label: Bar - Garage
+  - ecg: 33
+    label: Bar - Inside
+  - ecg: 50
+    label: Kitchen
+  - ecg: 51
+    label: Kitchen
+  - ecg: 52
+    label: Kitchen
+  - ecg: 53
+    label: Kitchen
