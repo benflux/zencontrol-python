@@ -3,6 +3,26 @@
 Diagnostic script to identify devices with unknown states in Home Assistant
 """
 
+import sys
+import os
+
+# Auto-detect and use venv Python if dependencies are missing
+try:
+    import aiomqtt
+    import colorama
+    import yaml
+    import zencontrol
+except ImportError:
+    # Dependencies not found, try using venv Python
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    venv_python = os.path.join(script_dir, 'venv', 'bin', 'python3')
+    if os.path.exists(venv_python):
+        os.execv(venv_python, [venv_python] + sys.argv)
+    else:
+        print("Error: Required dependencies (aiomqtt, colorama, yaml, zencontrol) not found.")
+        print("Please install them in a virtual environment or install them system-wide.")
+        sys.exit(1)
+
 import asyncio
 import yaml
 import zencontrol

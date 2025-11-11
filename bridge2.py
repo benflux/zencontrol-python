@@ -12,6 +12,26 @@ This bridge combines the diagnostic capabilities of diagnose_v2.py with the
 continuous operation of mqtt_bridge.py.
 """
 
+import sys
+import os
+
+# Auto-detect and use venv Python if dependencies are missing
+try:
+    import aiomqtt
+    import colorama
+    import yaml
+    import zencontrol
+except ImportError:
+    # Dependencies not found, try using venv Python
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    venv_python = os.path.join(script_dir, 'venv', 'bin', 'python3')
+    if os.path.exists(venv_python):
+        os.execv(venv_python, [venv_python] + sys.argv)
+    else:
+        print("Error: Required dependencies (aiomqtt, colorama, yaml, zencontrol) not found.")
+        print("Please install them in a virtual environment or install them system-wide.")
+        sys.exit(1)
+
 import asyncio
 import ipaddress
 import time
@@ -360,10 +380,15 @@ class ZenMQTTBridge2:
         # Query and publish all lights
         lights = await self.zen.get_lights()
         for light in lights:
+            mqtt_topic = light.client_data.get("light", {}).get('mqtt_topic')
+            if not mqtt_topic:
+                failed_count += 1
+                self.logger.warning(f"⚠️ Failed to publish initial state for {light.label}: No MQTT topic")
+                continue
+                
             try:
                 level = await self.zen.protocol.dali_query_level(light.address)
-                mqtt_topic = light.client_data.get("light", {}).get('mqtt_topic')
-                if mqtt_topic and level is not None:
+                if level is not None:
                     state = {
                         "state": "OFF" if level == 0 else "ON",
                         "brightness": self.arc_to_brightness(level)
@@ -372,21 +397,32 @@ class ZenMQTTBridge2:
                     published_count += 1
                     self.logger.debug(f"✓ Published initial state for {light.label}: Level={level}")
                 else:
+                    # Query returned None, publish default state
                     failed_count += 1
-                    self.logger.warning(f"⚠️ Failed to publish initial state for {light.label}")
+                    default_state = {"state": "OFF", "brightness": 0}
+                    await self._publish_state(mqtt_topic, default_state, retain=True)
+                    self.logger.warning(f"⚠️ Failed to query {light.label}, published default OFF state")
             except Exception as e:
+                # Query failed, publish default state so HA doesn't show "Unknown"
                 failed_count += 1
-                self.logger.warning(f"⚠️ Failed to query {light.label}: {e}")
+                default_state = {"state": "OFF", "brightness": 0}
+                await self._publish_state(mqtt_topic, default_state, retain=True)
+                self.logger.warning(f"⚠️ Failed to query {light.label}: {e}, published default OFF state")
         
         # Query and publish all groups
         groups = await self.zen.get_groups()
         for group in groups:
             if not group.lights:
                 continue
+            mqtt_topic = group.client_data.get("light", {}).get('mqtt_topic')
+            if not mqtt_topic:
+                failed_count += 1
+                self.logger.warning(f"⚠️ Failed to publish initial state for {group.label}: No MQTT topic")
+                continue
+                
             try:
                 level = await self.zen.protocol.dali_query_level(group.address)
-                mqtt_topic = group.client_data.get("light", {}).get('mqtt_topic')
-                if mqtt_topic and level is not None:
+                if level is not None:
                     state = {
                         "state": "OFF" if level == 0 else "ON",
                         "brightness": self.arc_to_brightness(level)
@@ -395,11 +431,17 @@ class ZenMQTTBridge2:
                     published_count += 1
                     self.logger.debug(f"✓ Published initial state for {group.label}: Level={level}")
                 else:
+                    # Query returned None, publish default state
                     failed_count += 1
-                    self.logger.warning(f"⚠️ Failed to publish initial state for {group.label}")
+                    default_state = {"state": "OFF", "brightness": 0}
+                    await self._publish_state(mqtt_topic, default_state, retain=True)
+                    self.logger.warning(f"⚠️ Failed to query {group.label}, published default OFF state")
             except Exception as e:
+                # Query failed, publish default state so HA doesn't show "Unknown"
                 failed_count += 1
-                self.logger.warning(f"⚠️ Failed to query {group.label}: {e}")
+                default_state = {"state": "OFF", "brightness": 0}
+                await self._publish_state(mqtt_topic, default_state, retain=True)
+                self.logger.warning(f"⚠️ Failed to query {group.label}: {e}, published default OFF state")
         
         self.logger.info(f"✅ Initial state publishing complete: {published_count} published, {failed_count} failed")
         
