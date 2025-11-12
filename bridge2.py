@@ -157,6 +157,11 @@ class ZenMQTTBridge2:
         
         # Rate limiter for controlling concurrent operations
         self.rate_limiter = RateLimiter(max_concurrent=5, delay_between_batches=0.1)
+        
+        # Controller health monitoring
+        self.controller_health: dict[str, dict[str, Any]] = {}  # Key: controller.name, Value: health state dict
+        self.health_check_config: dict[str, Any] = {}
+        self.reconnect_tasks: dict[str, asyncio.Task] = {}  # Track ongoing reconnection tasks per controller
 
         self.global_config: dict[str, Any] = {
             "origin": {
@@ -194,6 +199,11 @@ class ZenMQTTBridge2:
 
             # It's ready, interview it.
             await ctrl.interview()
+            
+            # Mark controller as online after successful interview
+            if ctrl.name in self.controller_health:
+                self.controller_health[ctrl.name]['status'] = 'online'
+                self.controller_health[ctrl.name]['last_success'] = time.time()
         
         # Start MQTT message handling task
         self.logger.info("Starting MQTT message handler...")
@@ -240,6 +250,14 @@ class ZenMQTTBridge2:
         self.logger.info("Starting periodic state polling...")
         self.poll_task = asyncio.create_task(self._periodic_state_poll())
         self.logger.info("Periodic state polling started")
+        
+        # Start controller health monitoring task
+        if self.health_check_config['enabled']:
+            self.logger.info("Starting controller health monitoring...")
+            self.health_task = asyncio.create_task(self._controller_health_monitor())
+            self.logger.info(f"Controller health monitoring started (interval: {self.health_check_config['interval']}s)")
+        else:
+            self.logger.info("Controller health monitoring disabled")
 
         self.logger.info("Saving cache...")
         with open("examples/cache.pkl", "wb") as f:
@@ -249,6 +267,15 @@ class ZenMQTTBridge2:
         clist = []
         for c in sorted(self.control, key=lambda x: x.id):
             clist.append(f"{c.label} ({c.host})")
+            # Publish initial availability status for each controller
+            if c.name in self.controller_health:
+                health_status = self.controller_health[c.name]['status']
+                availability = 'online' if health_status == 'online' else 'offline'
+                try:
+                    await self.mqttc.publish(f"{Const.MQTT_SERVICE_PREFIX}/{c.name}/availability", availability, retain=True)
+                    self.logger.debug(f"📡 Published initial availability for {c.label} ({c.name}): {availability}")
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Failed to publish initial availability for {c.label} ({c.name}): {e}")
         self.logger.info(f"Bridge2 ready - Controllers: {', '.join(clist)}")
         
         # Keep running
@@ -266,6 +293,12 @@ class ZenMQTTBridge2:
             self.mqtt_task.cancel()
         if hasattr(self, 'poll_task'):
             self.poll_task.cancel()
+        if hasattr(self, 'health_task'):
+            self.health_task.cancel()
+        # Cancel any ongoing reconnection tasks
+        for task in self.reconnect_tasks.values():
+            if not task.done():
+                task.cancel()
         if hasattr(self, 'zen'):
             await self.zen.stop()
         self.logger.info("Bridge stopped")
@@ -277,6 +310,17 @@ class ZenMQTTBridge2:
     def setup_config(self) -> None:
         """Setup configuration from config.yaml"""
         self.discovery_prefix = self.config['homeassistant']['discovery_prefix']
+        
+        # Load health check configuration with defaults
+        health_config = self.config.get('health_check', {})
+        self.health_check_config = {
+            'enabled': health_config.get('enabled', True),
+            'interval': health_config.get('interval', 60),
+            'failure_threshold': health_config.get('failure_threshold', 3),
+            'reconnect_attempts': health_config.get('reconnect_attempts', 5),
+            'reconnect_backoff_min': health_config.get('reconnect_backoff_min', 5),
+            'reconnect_backoff_max': health_config.get('reconnect_backoff_max', 60),
+        }
         
         # Parse system variables configuration
         self.sv_config = []
@@ -324,6 +368,20 @@ class ZenMQTTBridge2:
         console_level = self.config.get('logging', {}).get('console_level', 'INFO')
         console_handler.setLevel(getattr(logging, console_level.upper()))
         self.logger.addHandler(console_handler)
+        
+        # Errors and warnings file handler
+        errors_warnings_file = 'errorsandwarnings.txt'
+        try:
+            errors_warnings_handler = logging.FileHandler(errors_warnings_file, mode='a', encoding='utf-8')
+            errors_warnings_formatter = logging.Formatter(
+                '%(asctime)s - %(levelname)s - %(message)s'
+            )
+            errors_warnings_handler.setFormatter(errors_warnings_formatter)
+            errors_warnings_handler.setLevel(logging.WARNING)  # Only WARNING and ERROR
+            self.logger.addHandler(errors_warnings_handler)
+            self.logger.debug(f"Errors and warnings file handler added: {errors_warnings_file}")
+        except Exception as e:
+            self.logger.error(f"Failed to create errors/warnings file handler: {e}")
 
     async def setup_zen(self) -> None:
         """Setup Zencontrol connection"""
@@ -354,6 +412,19 @@ class ZenMQTTBridge2:
                 mac=ctrl_config['mac']
             )
             self.control.append(ctrl)
+            
+            # Initialize controller health state
+            self.controller_health[ctrl.name] = {
+                'status': 'unknown',  # 'online', 'offline', 'degraded', 'unknown'
+                'failure_count': 0,
+                'consecutive_failures': 0,
+                'last_success': None,
+                'last_failure': None,
+                'last_check': None,
+                'reconnect_attempts': 0,
+                'total_errors': 0,
+                'total_successes': 0,
+            }
 
     async def setup_mqtt(self) -> None:
         """Setup MQTT connection"""
@@ -895,7 +966,10 @@ class ZenMQTTBridge2:
                         await self.mqttc.subscribe(f"{self.discovery_prefix}/event/{ctrl.name}/#")
                         await self.mqttc.subscribe(f"{self.discovery_prefix}/select/{ctrl.name}/#")
                         await self.mqttc.subscribe(f"{self.discovery_prefix}/device_automation/{ctrl.name}/#")
-                        await self.mqttc.publish(f"{Const.MQTT_SERVICE_PREFIX}/{ctrl.name}/availability", "online", retain=True)
+                        # Publish initial availability status based on health state
+                        health_status = self.controller_health.get(ctrl.name, {}).get('status', 'unknown')
+                        availability = 'online' if health_status == 'online' else 'offline'
+                        await self.mqttc.publish(f"{Const.MQTT_SERVICE_PREFIX}/{ctrl.name}/availability", availability, retain=True)
                     
                     self.logger.info("Successfully connected to MQTT broker")
                     
@@ -994,6 +1068,19 @@ class ZenMQTTBridge2:
                 lights = await self.zen.get_lights()
                 groups = await self.zen.get_groups()
                 
+                # Check for None returns and handle gracefully
+                if lights is None:
+                    self.logger.warning("get_lights() returned None, skipping this polling cycle")
+                    lights = []
+                if groups is None:
+                    self.logger.warning("get_groups() returned None, skipping this polling cycle")
+                    groups = []
+                
+                # If both are None/empty, skip this cycle
+                if not lights and not groups:
+                    self.logger.warning("No lights or groups available, skipping state refresh")
+                    continue
+                
                 # Refresh states with rate limiting
                 refresh_coros = []
                 for light in lights:
@@ -1001,7 +1088,21 @@ class ZenMQTTBridge2:
                 for group in groups:
                     refresh_coros.append(group.refresh_state_from_controller(verifying=True))
                 
-                await self.rate_limiter.execute_batch(refresh_coros)
+                if refresh_coros:
+                    try:
+                        await self.rate_limiter.execute_batch(refresh_coros)
+                    except ZenTimeoutError as e:
+                        # Extract controller info from timeout errors during refresh
+                        error_msg = str(e)
+                        match = re.search(r'(\d+\.\d+\.\d+\.\d+):(\d+)', error_msg)
+                        if match:
+                            failed_ip = match.group(1)
+                            failed_port = int(match.group(2))
+                            for ctrl in self.control:
+                                if ctrl.host == failed_ip and ctrl.port == failed_port:
+                                    await self._record_controller_failure(ctrl, f"State refresh timeout: {error_msg}")
+                                    break
+                        self.logger.warning(f"⚠️ State refresh timeout during periodic poll: {e}")
                 
                 # Check for state mismatches and publish corrections
                 corrected_count = 0
@@ -1029,10 +1130,33 @@ class ZenMQTTBridge2:
                 
                 # Log periodic summary every 10 polls
                 if total_polls % 10 == 0:
-                    self.logger.info(f"📊 Periodic poll #{total_polls}: {len(lights)} lights, {len(groups)} groups checked, {corrected_count} states published")
+                    lights_count = len(lights) if lights is not None else 0
+                    groups_count = len(groups) if groups is not None else 0
+                    self.logger.info(f"📊 Periodic poll #{total_polls}: {lights_count} lights, {groups_count} groups checked, {corrected_count} states published")
                 
-            except Exception as e:
+            except ZenTimeoutError as e:
+                # Extract controller info from the error if possible
+                error_msg = str(e)
                 self.logger.error(f"❌ Periodic state poll error: {e}")
+                
+                # Try to identify which controller failed from the error message
+                # The error message contains IP:port like "192.168.1.193:5108"
+                match = re.search(r'(\d+\.\d+\.\d+\.\d+):(\d+)', error_msg)
+                if match:
+                    failed_ip = match.group(1)
+                    failed_port = int(match.group(2))
+                    # Find the controller that matches this IP/port
+                    for ctrl in self.control:
+                        if ctrl.host == failed_ip and ctrl.port == failed_port:
+                            # Trigger health check failure for this controller
+                            await self._record_controller_failure(ctrl, f"Periodic state poll timeout: {error_msg}")
+                            break
+                
+                # Continue polling even if there's an error
+            except Exception as e:
+                error_details = traceback.format_exc()
+                self.logger.error(f"❌ Periodic state poll error: {e}")
+                self.logger.debug(f"Periodic state poll error traceback:\n{error_details}")
                 # Continue polling even if there's an error
 
     async def verify_all_states(self) -> None:
@@ -1076,6 +1200,168 @@ class ZenMQTTBridge2:
         self.logger.info(f"✅ Manual verification complete: {len(lights)} lights, {len(groups)} groups checked, {corrected_count} states published")
 
     # ================================
+    #   CONTROLLER HEALTH MONITORING
+    # ================================
+
+    async def _controller_health_monitor(self) -> None:
+        """Periodic health monitoring task for all controllers"""
+        interval = self.health_check_config['interval']
+        
+        while True:
+            try:
+                await asyncio.sleep(interval)
+                
+                # Check health of all controllers
+                for ctrl in self.control:
+                    if ctrl.name not in self.controller_health:
+                        continue
+                    
+                    # Skip if reconnection is already in progress
+                    if ctrl.name in self.reconnect_tasks and not self.reconnect_tasks[ctrl.name].done():
+                        continue
+                    
+                    await self._check_controller_health(ctrl)
+                    
+            except asyncio.CancelledError:
+                self.logger.info("Controller health monitor cancelled")
+                break
+            except Exception as e:
+                self.logger.error(f"❌ Error in controller health monitor: {e}")
+                await asyncio.sleep(5)  # Brief pause before retrying
+
+    async def _check_controller_health(self, ctrl: ZenController) -> None:
+        """Check health of a single controller using a lightweight query"""
+        health = self.controller_health[ctrl.name]
+        health['last_check'] = time.time()
+        
+        try:
+            # Use a lightweight query - controller version is cached and fast
+            version = await self.zen.protocol.query_controller_version_number(ctrl)
+            
+            if version is not None:
+                await self._record_controller_success(ctrl)
+            else:
+                await self._record_controller_failure(ctrl, "Health check returned None")
+                
+        except ZenTimeoutError as e:
+            await self._record_controller_failure(ctrl, f"Health check timeout: {e}")
+        except Exception as e:
+            await self._record_controller_failure(ctrl, f"Health check error: {e}")
+
+    async def _record_controller_success(self, ctrl: ZenController) -> None:
+        """Record a successful controller operation"""
+        health = self.controller_health[ctrl.name]
+        health['last_success'] = time.time()
+        health['total_successes'] += 1
+        health['consecutive_failures'] = 0
+        
+        # If controller was offline, mark it as online
+        if health['status'] == 'offline':
+            health['status'] = 'online'
+            health['reconnect_attempts'] = 0
+            self.logger.info(f"✅ Controller {ctrl.label} ({ctrl.name}) is now ONLINE - {ctrl.host}:{ctrl.port}")
+            await self._update_controller_availability(ctrl, 'online')
+        elif health['status'] == 'degraded':
+            # If we had some failures but now it's working, mark as online
+            if health['total_errors'] < 5:  # Threshold for degraded -> online
+                health['status'] = 'online'
+                self.logger.info(f"✅ Controller {ctrl.label} ({ctrl.name}) recovered from degraded state")
+                await self._update_controller_availability(ctrl, 'online')
+
+    async def _record_controller_failure(self, ctrl: ZenController, error_msg: str) -> None:
+        """Record a failed controller operation"""
+        health = self.controller_health[ctrl.name]
+        health['last_failure'] = time.time()
+        health['failure_count'] += 1
+        health['consecutive_failures'] += 1
+        health['total_errors'] += 1
+        
+        threshold = self.health_check_config['failure_threshold']
+        
+        # Log the failure
+        self.logger.warning(f"⚠️ Controller {ctrl.label} ({ctrl.name}) health check failed: {error_msg} (consecutive failures: {health['consecutive_failures']})")
+        
+        # Mark as offline if threshold exceeded
+        if health['consecutive_failures'] >= threshold:
+            if health['status'] != 'offline':
+                health['status'] = 'offline'
+                self.logger.error(f"❌ Controller {ctrl.label} ({ctrl.name}) marked as OFFLINE after {health['consecutive_failures']} consecutive failures - {ctrl.host}:{ctrl.port}")
+                await self._update_controller_availability(ctrl, 'offline')
+                
+                # Trigger reconnection attempt
+                if ctrl.name not in self.reconnect_tasks or self.reconnect_tasks[ctrl.name].done():
+                    self.reconnect_tasks[ctrl.name] = asyncio.create_task(self._reconnect_controller(ctrl))
+        elif health['consecutive_failures'] >= threshold // 2:
+            # Mark as degraded if we're halfway to threshold
+            if health['status'] == 'online':
+                health['status'] = 'degraded'
+                self.logger.warning(f"⚠️ Controller {ctrl.label} ({ctrl.name}) marked as DEGRADED - {ctrl.host}:{ctrl.port}")
+
+    async def _update_controller_availability(self, ctrl: ZenController, status: str) -> None:
+        """Update MQTT availability topic for a controller"""
+        try:
+            availability_topic = f"{Const.MQTT_SERVICE_PREFIX}/{ctrl.name}/availability"
+            await self.mqttc.publish(availability_topic, status, retain=True)
+            self.logger.debug(f"📡 Updated availability for {ctrl.label} ({ctrl.name}): {status}")
+        except Exception as e:
+            self.logger.error(f"❌ Failed to update availability for {ctrl.label} ({ctrl.name}): {e}")
+
+    async def _reconnect_controller(self, ctrl: ZenController) -> None:
+        """Attempt to reconnect a failed controller with exponential backoff"""
+        health = self.controller_health[ctrl.name]
+        max_attempts = self.health_check_config['reconnect_attempts']
+        backoff_min = self.health_check_config['reconnect_backoff_min']
+        backoff_max = self.health_check_config['reconnect_backoff_max']
+        
+        attempt = 0
+        backoff = backoff_min
+        
+        while attempt < max_attempts and health['status'] == 'offline':
+            attempt += 1
+            health['reconnect_attempts'] = attempt
+            
+            self.logger.warning(f"🔄 Attempting to reconnect {ctrl.label} ({ctrl.name}) - attempt {attempt}/{max_attempts} - {ctrl.host}:{ctrl.port}")
+            
+            try:
+                # Close existing client if present
+                if ctrl.client and ctrl.client.is_connected():
+                    try:
+                        await ctrl.client.close()
+                    except Exception:
+                        pass
+                    ctrl.client = None
+                
+                # Wait before attempting reconnection (exponential backoff)
+                if attempt > 1:
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, backoff_max)
+                
+                # Verify controller is ready
+                if not await ctrl.is_controller_ready():
+                    self.logger.warning(f"⚠️ Controller {ctrl.label} ({ctrl.name}) not ready yet, will retry")
+                    continue
+                
+                # Re-interview the controller
+                await ctrl.interview()
+                
+                # Verify connection with a health check
+                version = await self.zen.protocol.query_controller_version_number(ctrl)
+                if version is not None:
+                    self.logger.warning(f"✅ Successfully reconnected to {ctrl.label} ({ctrl.name}) - {ctrl.host}:{ctrl.port}")
+                    await self._record_controller_success(ctrl)
+                    return
+                else:
+                    self.logger.warning(f"⚠️ Reconnection to {ctrl.label} ({ctrl.name}) succeeded but health check failed")
+                    
+            except ZenTimeoutError as e:
+                self.logger.warning(f"⚠️ Reconnection attempt {attempt} failed for {ctrl.label} ({ctrl.name}): {e}")
+            except Exception as e:
+                self.logger.warning(f"⚠️ Reconnection attempt {attempt} failed for {ctrl.label} ({ctrl.name}): {e}")
+        
+        if health['status'] == 'offline':
+            self.logger.error(f"❌ Failed to reconnect {ctrl.label} ({ctrl.name}) after {max_attempts} attempts - {ctrl.host}:{ctrl.port}")
+
+    # ================================
     #        EVENT HANDLERS
     # ================================
 
@@ -1105,8 +1391,21 @@ class ZenMQTTBridge2:
             try:
                 await light.set(**args)
                 self.logger.info(f"✅ Successfully executed light.set({args})")
+                # Record success for controller health tracking
+                if ctrl.name in self.controller_health:
+                    await self._record_controller_success(ctrl)
+            except ZenTimeoutError as e:
+                error_msg = f"Timeout executing light.set({args}) for {self._get_device_name(light)}: {e}"
+                self.logger.error(f"❌ {error_msg}")
+                await self._record_controller_failure(ctrl, error_msg)
+                # Trigger reconnection if not already in progress
+                if ctrl.name not in self.reconnect_tasks or self.reconnect_tasks[ctrl.name].done():
+                    if self.controller_health[ctrl.name]['status'] == 'offline':
+                        self.reconnect_tasks[ctrl.name] = asyncio.create_task(self._reconnect_controller(ctrl))
             except Exception as e:
-                self.logger.error(f"❌ Error executing light.set({args}): {e}")
+                error_msg = f"Error executing light.set({args}) for {self._get_device_name(light)}: {e}"
+                self.logger.error(f"❌ {error_msg}")
+                await self._record_controller_failure(ctrl, error_msg)
             return
         
         # If switched on/off in HA
@@ -1115,15 +1414,41 @@ class ZenMQTTBridge2:
             try:
                 await light.off(fade=True)
                 self.logger.info(f"✅ Successfully executed light.off()")
+                # Record success for controller health tracking
+                if ctrl.name in self.controller_health:
+                    await self._record_controller_success(ctrl)
+            except ZenTimeoutError as e:
+                error_msg = f"Timeout executing light.off() for {self._get_device_name(light)}: {e}"
+                self.logger.error(f"❌ {error_msg}")
+                await self._record_controller_failure(ctrl, error_msg)
+                # Trigger reconnection if not already in progress
+                if ctrl.name not in self.reconnect_tasks or self.reconnect_tasks[ctrl.name].done():
+                    if self.controller_health[ctrl.name]['status'] == 'offline':
+                        self.reconnect_tasks[ctrl.name] = asyncio.create_task(self._reconnect_controller(ctrl))
             except Exception as e:
-                self.logger.error(f"❌ Error executing light.off(): {e}")
+                error_msg = f"Error executing light.off() for {self._get_device_name(light)}: {e}"
+                self.logger.error(f"❌ {error_msg}")
+                await self._record_controller_failure(ctrl, error_msg)
         elif state == "ON":
             self.logger.info(f"📥 HA Command → {self._get_device_name(light)}: Turn ON")
             try:
                 await light.on()
                 self.logger.info(f"✅ Successfully executed light.on()")
+                # Record success for controller health tracking
+                if ctrl.name in self.controller_health:
+                    await self._record_controller_success(ctrl)
+            except ZenTimeoutError as e:
+                error_msg = f"Timeout executing light.on() for {self._get_device_name(light)}: {e}"
+                self.logger.error(f"❌ {error_msg}")
+                await self._record_controller_failure(ctrl, error_msg)
+                # Trigger reconnection if not already in progress
+                if ctrl.name not in self.reconnect_tasks or self.reconnect_tasks[ctrl.name].done():
+                    if self.controller_health[ctrl.name]['status'] == 'offline':
+                        self.reconnect_tasks[ctrl.name] = asyncio.create_task(self._reconnect_controller(ctrl))
             except Exception as e:
-                self.logger.error(f"❌ Error executing light.on(): {e}")
+                error_msg = f"Error executing light.on() for {self._get_device_name(light)}: {e}"
+                self.logger.error(f"❌ {error_msg}")
+                await self._record_controller_failure(ctrl, error_msg)
         else:
             self.logger.warning(f"⚠️ Unknown state command: {state}")
 
@@ -1186,8 +1511,25 @@ class ZenMQTTBridge2:
 
     async def _mqtt_groupscene_change(self, group: ZenGroup, payload: str) -> None:
         """Handle MQTT group scene commands from Home Assistant"""
+        ctrl = group.address.controller
         self.logger.info(f"📥 HA Command → {self._get_device_name(group)}: Set Scene '{payload}'")
-        await group.set_scene(payload)
+        try:
+            await group.set_scene(payload)
+            # Record success for controller health tracking
+            if ctrl.name in self.controller_health:
+                await self._record_controller_success(ctrl)
+        except ZenTimeoutError as e:
+            error_msg = f"Timeout setting scene '{payload}' for {self._get_device_name(group)}: {e}"
+            self.logger.error(f"❌ {error_msg}")
+            await self._record_controller_failure(ctrl, error_msg)
+            # Trigger reconnection if not already in progress
+            if ctrl.name not in self.reconnect_tasks or self.reconnect_tasks[ctrl.name].done():
+                if self.controller_health[ctrl.name]['status'] == 'offline':
+                    self.reconnect_tasks[ctrl.name] = asyncio.create_task(self._reconnect_controller(ctrl))
+        except Exception as e:
+            error_msg = f"Error setting scene '{payload}' for {self._get_device_name(group)}: {e}"
+            self.logger.error(f"❌ {error_msg}")
+            await self._record_controller_failure(ctrl, error_msg)
 
     async def _zen_group_change(self, group: ZenGroup, level: Optional[int] = None, colour: Optional[ZenColour] = None, scene: Optional[int] = None, discoordinated: Optional[bool] = None) -> None:
         """Handle Zen group change events"""
@@ -1220,7 +1562,23 @@ class ZenMQTTBridge2:
     async def _mqtt_profile_change(self, ctrl: ZenController, payload: str) -> None:
         """Handle MQTT profile commands from Home Assistant"""
         self.logger.info(f"📥 HA Command → {self._get_device_name(ctrl)}: Switch to Profile '{payload}'")
-        await ctrl.switch_to_profile(payload)
+        try:
+            await ctrl.switch_to_profile(payload)
+            # Record success for controller health tracking
+            if ctrl.name in self.controller_health:
+                await self._record_controller_success(ctrl)
+        except ZenTimeoutError as e:
+            error_msg = f"Timeout switching to profile '{payload}' for {self._get_device_name(ctrl)}: {e}"
+            self.logger.error(f"❌ {error_msg}")
+            await self._record_controller_failure(ctrl, error_msg)
+            # Trigger reconnection if not already in progress
+            if ctrl.name not in self.reconnect_tasks or self.reconnect_tasks[ctrl.name].done():
+                if self.controller_health[ctrl.name]['status'] == 'offline':
+                    self.reconnect_tasks[ctrl.name] = asyncio.create_task(self._reconnect_controller(ctrl))
+        except Exception as e:
+            error_msg = f"Error switching to profile '{payload}' for {self._get_device_name(ctrl)}: {e}"
+            self.logger.error(f"❌ {error_msg}")
+            await self._record_controller_failure(ctrl, error_msg)
 
     async def _zen_profile_change(self, profile: ZenProfile) -> None:
         """Handle Zen profile change events"""

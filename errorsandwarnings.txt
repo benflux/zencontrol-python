@@ -1,0 +1,55 @@
+2025-11-12 14:55:35,080 - [33mWARNING[0m - ⚠️ Group 0: Initial state query returned invalid value (None)
+2025-11-12 14:55:36,115 - [33mWARNING[0m - ⚠️ Pub: Initial state query returned invalid value (None)
+2025-11-12 14:55:36,499 - [33mWARNING[0m - ⚠️ 2 groups failed initial state query: Group 0, Pub
+2025-11-12 14:55:36,499 - [33mWARNING[0m - ⚠️ These groups may show as 'Unknown' in Home Assistant until they change state
+2025-11-12 14:55:59,251 - [31mERROR[0m - 🔍 Light 3 level mismatch! We had 0, actual level is 254
+2025-11-12 14:55:59,355 - [33mWARNING[0m - ⚠️ Failed to query Group 0, published default OFF state
+2025-11-12 14:55:59,608 - [33mWARNING[0m - ⚠️ Failed to query Pub, published default OFF state
+2025-11-12 14:55:59,616 - [33mWARNING[0m - ⚠️ 2 devices failed initial state publishing - they may show as 'Unknown' in Home Assistant
+2025-11-12 14:57:00,598 - [31mERROR[0m - 🔍 Light 8 level mismatch! We had 0, actual level is 254
+2025-11-12 14:57:02,018 - [31mERROR[0m - 🔍 Light 30 level mismatch! We had 0, actual level is 254
+2025-11-12 14:57:03,217 - [31mERROR[0m - 🔍 Light 9 level mismatch! We had 0, actual level is 254
+2025-11-12 17:08:03,933 - [31mERROR[0m - 🔍 Light 3 level mismatch! We had None, actual level is 254
+2025-11-12 17:13:28,376 - [31mERROR[0m - 🔍 Light 1 level mismatch! We had None, actual level is 249
+2025-11-12 17:13:29,142 - [31mERROR[0m - 🔍 Light 3 level mismatch! We had None, actual level is 249
+2025-11-12 17:18:14,236 - [31mERROR[0m - 🔍 Light 4 level mismatch! We had 244, actual level is None
+2025-11-12 17:18:52,839 - [31mERROR[0m - 🔍 Light 4 level mismatch! We had 244, actual level is None
+2025-11-12 17:19:01,503 - [31mERROR[0m - 🔍 Light 17 level mismatch! We had 254, actual level is None
+2025-11-12 17:19:56,993 - [31mERROR[0m - 🔍 Light 1 level mismatch! We had None, actual level is 246
+2025-11-12 17:22:07,132 - [31mERROR[0m - 🔍 Light 5 level mismatch! We had None, actual level is 244
+2025-11-12 17:24:06,630 - [31mERROR[0m - 🔍 Light 5 level mismatch! We had 241, actual level is None
+2025-11-12 17:24:06,697 - [31mERROR[0m - 🔍 Light 4 level mismatch! We had 241, actual level is None
+2025-11-12 17:24:16,457 - [31mERROR[0m - 🔍 Light 1 level mismatch! We had None, actual level is 241
+2025-11-12 17:24:16,685 - [31mERROR[0m - 🔍 Light 5 level mismatch! We had 241, actual level is None
+2025-11-12 17:24:17,357 - [31mERROR[0m - 🔍 Light 4 level mismatch! We had 241, actual level is None
+2025-11-12 17:25:22,577 - [31mERROR[0m - 🔍 Light 4 level mismatch! We had None, actual level is 254
+2025-11-12 17:25:22,712 - [31mERROR[0m - 🔍 Light 3 level mismatch! We had None, actual level is 244
+2025-11-12 17:28:04,849 - [31mERROR[0m - Command error code: QUEUE_FAILURE
+2025-11-12 17:28:06,877 - [31mERROR[0m - 🔍 Light 1 level mismatch! We had None, actual level is 239
+2025-11-12 17:29:41,767 - [31mERROR[0m - 🔍 Light 7 level mismatch! We had 239, actual level is None
+2025-11-12 17:30:46,848 - [31mERROR[0m - 🔍 Light 7 level mismatch! We had 239, actual level is None
+2025-11-12 17:31:51,532 - [31mERROR[0m - 🔍 Light 7 level mismatch! We had 239, actual level is None
+2025-11-12 17:32:06,872 - [31mERROR[0m - 🔍 Light 7 level mismatch! We had 236, actual level is None
+2025-11-12 17:32:56,489 - [31mERROR[0m - 🔍 Light 7 level mismatch! We had 236, actual level is None
+2025-11-12 17:34:01,413 - [31mERROR[0m - 🔍 Light 7 level mismatch! We had 236, actual level is None
+2025-11-12 17:45:56,348 - [31mERROR[0m - 🔍 Light 3 level mismatch! We had None, actual level is 230
+2025-11-12 17:45:56,449 - [31mERROR[0m - 🔍 Light 2 level mismatch! We had None, actual level is 230
+2025-11-12 17:45:57,026 - [31mERROR[0m - 🔍 Light 4 level mismatch! We had None, actual level is 230
+2025-11-12 17:59:21,759 - [31mERROR[0m - 🔍 Light 1 level mismatch! We had 1, actual level is 86
+2025-11-12 18:00:56,751 - [31mERROR[0m - 🔍 Light 4 level mismatch! We had 30, actual level is 86
+2025-11-12 18:03:41,563 - [31mERROR[0m - 🔍 Light 4 level mismatch! We had None, actual level is 254
+2025-11-12 18:28:31,427 - [31mERROR[0m - UDP packet response from 192.168.1.193:5108 not received after 1502ms, probably offline [0x04 0xED 0xAE 0x09 0x00 0x00 0x00 0x4E]
+2025-11-12 18:28:31,432 - [33mWARNING[0m - ⚠️ Controller Zencontrol 2 (zen2) health check failed: State refresh timeout: No response from 192.168.1.193:5108 after 1502ms (consecutive failures: 1)
+2025-11-12 18:28:31,436 - [33mWARNING[0m - ⚠️ Controller Zencontrol 2 (zen2) marked as DEGRADED - 192.168.1.193:5108
+2025-11-12 18:28:31,439 - [33mWARNING[0m - ⚠️ State refresh timeout during periodic poll: No response from 192.168.1.193:5108 after 1502ms
+2025-11-12 18:44:45,233 - [31mERROR[0m - 🔍 Light 3 level mismatch! We had None, actual level is 216
+2025-11-12 19:00:17,888 - [31mERROR[0m - 🔍 Light 3 level mismatch! We had None, actual level is 216
+2025-11-12 19:07:50,752 - [31mERROR[0m - 🔍 Light 1 level mismatch! We had None, actual level is 203
+2025-11-12 19:07:51,290 - [31mERROR[0m - 🔍 Light 5 level mismatch! We had None, actual level is 203
+2025-11-12 19:07:51,480 - [31mERROR[0m - 🔍 Light 3 level mismatch! We had None, actual level is 216
+2025-11-12 19:08:55,479 - [31mERROR[0m - 🔍 Light 1 level mismatch! We had None, actual level is 203
+2025-11-12 19:17:33,733 - [31mERROR[0m - 🔍 Light 1 level mismatch! We had None, actual level is 254
+2025-11-12 19:17:47,314 - [31mERROR[0m - 🔍 Light 5 level mismatch! We had 203, actual level is None
+2025-11-12 19:18:38,397 - [31mERROR[0m - 🔍 Light 1 level mismatch! We had None, actual level is 203
+2025-11-12 19:20:50,453 - [31mERROR[0m - 🔍 Light 5 level mismatch! We had None, actual level is 203
+2025-11-12 19:20:50,467 - [31mERROR[0m - 🔍 Light 1 level mismatch! We had None, actual level is 254
